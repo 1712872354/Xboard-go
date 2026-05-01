@@ -63,9 +63,8 @@ func Initialize(cfg *config.Config) *App {
 		rdb = database.InitRedis(&cfg.Redis)
 	}
 
-	if shouldMigrate() {
-		runMigrations(db)
-	}
+	// 每次启动都自动迁移，确保表结构最新
+	runMigrations(db)
 
 	jwtAuth := auth.NewJWTAuth(cfg.App.Key,
 		auth.WithIssuer(cfg.App.Name),
