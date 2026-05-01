@@ -1,0 +1,262 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v2.0.2)'
+        required: true
+        type: string
+      pre_release:
+        description: 'Mark as pre-release'
+        required: false
+        default: false
+        type: boolean
+      build_cli:
+        description: 'Include CLI tool in build'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build - ${{ matrix.os }}/${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            suffix: ""
+          - os: linux
+            arch: arm64
+            suffix: ""
+          - os: darwin
+            arch: amd64
+            suffix: ""
+          - os: darwin
+            arch: arm64
+            suffix: ""
+          - os: windows
+            arch: amd64
+            suffix: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Set build variables
+        id: vars
+        run: |
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+          echo "ARCHIVE_NAME=xboard-${{ github.event.inputs.version }}-${{ matrix.os }}-${{ matrix.arch }}" >> $GITHUB_OUTPUT
+
+      - name: Build server binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-X 'main.Version=${{ steps.vars.outputs.VERSION }}' -X 'main.BuildTime=${{ steps.vars.outputs.BUILD_TIME }}' -s -w" \
+            -o "build/xboard${{ matrix.suffix }}" ./cmd/server/
+
+      - name: Build scheduler binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-X 'main.Version=${{ steps.vars.outputs.VERSION }}' -X 'main.BuildTime=${{ steps.vars.outputs.BUILD_TIME }}' -s -w" \
+            -o "build/xboard-scheduler${{ matrix.suffix }}" ./cmd/scheduler/
+
+      - name: Build CLI binary (optional)
+        if: ${{ github.event.inputs.build_cli == 'true' }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w" \
+            -o "build/xboard-cli${{ matrix.suffix }}" ./cmd/cli/
+
+      - name: Package release archive
+        shell: bash
+        run: |
+          mkdir -p dist
+          cd build
+
+          # Create staging directory with proper structure
+          STAGING="${{ steps.vars.outputs.ARCHIVE_NAME }}"
+          mkdir -p "$STAGING/web" "$STAGING/storage/logs" "$STAGING/storage/data" "$STAGING/plugins"
+
+          # Copy binaries
+          cp xboard${{ matrix.suffix }} "$STAGING/"
+          cp xboard-scheduler${{ matrix.suffix }} "$STAGING/"
+
+          # Copy CLI binary if built
+          if [ -f xboard-cli${{ matrix.suffix }} ]; then
+            cp xboard-cli${{ matrix.suffix }} "$STAGING/"
+          fi
+
+          # Copy web assets
+          cp -r ../web/* "$STAGING/web/"
+
+          # Copy config example
+          cp ../config.example.yaml "$STAGING/config.example.yaml"
+
+          # Copy essential scripts
+          if [ -f ../Dockerfile ]; then
+            cp ../Dockerfile "$STAGING/"
+          fi
+
+          # Create archive
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            7z a -tzip "../dist/$STAGING.zip" "$STAGING/"
+          else
+            tar czf "../dist/$STAGING.tar.gz" "$STAGING/"
+          fi
+
+          echo "ARTIFACT_PATH=../dist/$STAGING.tar.gz" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=$STAGING.tar.gz" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xboard-${{ github.event.inputs.version }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/${{ steps.vars.outputs.ARCHIVE_NAME }}.tar.gz
+          if-no-files-found: error
+
+  docker:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs: [build]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.event.inputs.version }}
+            ghcr.io/${{ github.repository }}:latest
+          build-args: |
+            VERSION=${{ github.event.inputs.version }}
+            BUILD_TIME=${{ github.run_date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: ${{ always() && needs.build.result == 'success' }}
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: List artifacts
+        run: |
+          find dist-artifacts -type f
+          echo "=== Directory structure ==="
+          ls -laR dist-artifacts/
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          cat << 'EOF' > release_notes.md
+          # Xboard ${{ github.event.inputs.version }}
+
+          ## 发布说明
+
+          Xboard Go 重构版 —— 高性能代理管理面板。
+
+          ### 组件说明
+
+          | 组件 | 文件 | 说明 |
+          |------|------|------|
+          | API 服务 | `xboard` / `xboard.exe` | 主 HTTP API 服务，包含管理后台和用户前端 |
+          | 调度器 | `xboard-scheduler` / `xboard-scheduler.exe` | 独立定时任务守护进程 |
+          | CLI 工具 | `xboard-cli` / `xboard-cli.exe` | 命令行管理工具（仅当手动触发时选中"Include CLI"才包含） |
+
+          ### 系统要求
+
+          - MySQL 8.0+ 或 SQLite 3
+          - Redis 7+（可选，推荐用于缓存和队列）
+          - 操作系统：Linux (amd64/arm64), macOS (amd64/arm64), Windows (amd64)
+
+          ### 快速部署
+
+          ```bash
+          # 1. 解压
+          tar -xzf xboard-${{ github.event.inputs.version }}-linux-amd64.tar.gz
+
+          # 2. 复制配置并修改
+          cp config.example.yaml config.yaml
+          # 编辑 config.yaml，填写数据库连接等信息
+
+          # 3. 运行数据库迁移
+          ./xboard --migrate --config config.yaml
+
+          # 4. 创建默认管理员
+          ./xboard --seed --config config.yaml
+
+          # 5. 启动 API 服务
+          ./xboard --config config.yaml
+
+          # 6. 启动调度器（新开终端或使用 systemd）
+          ./xboard-scheduler --config config.yaml
+          ```
+
+          ### Docker 部署
+
+          ```bash
+          docker pull ghcr.io/${{ github.repository }}:${{ github.event.inputs.version }}
+          docker run -d -p 8080:8080 -v /path/to/config.yaml:/app/config.yaml ghcr.io/${{ github.repository }}:${{ github.event.inputs.version }}
+          ```
+
+          详细部署文档请参阅项目 README。
+
+          ---
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          body_path: release_notes.md
+          prerelease: ${{ github.event.inputs.pre_release }}
+          draft: false
+          files: |
+            dist-artifacts/**/*.tar.gz
+            dist-artifacts/**/*.zip
+          generate_release_notes: false

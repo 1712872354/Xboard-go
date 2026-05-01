@@ -1,0 +1,97 @@
+# Xboard 配置示例
+server:
+  mode: debug          # debug | release | test
+  port: 8080           # HTTP 监听端口
+  read_timeout: 30s
+  write_timeout: 30s
+  max_header_bytes: 10485760
+
+app:
+  name: "Xboard"
+  version: "2.0.1"
+  key: "your-app-key-here"   # 32 位随机字符串
+  debug: true
+  url: "http://localhost:8080"
+  secure_path: "/admin"
+  subscribe_path: "/s"
+  invite_force: false
+  invite_commission: 0
+  try_out_plan: ""
+  try_out_hours: 2
+  email_whitelist_enabled: false
+  email_whitelist: []
+  stop_register: false
+  enable_auto_backup: false
+  backup_interval: 86400
+  telegram_bot_token: ""
+
+database:
+  driver: mysql        # mysql | sqlite
+  host: 127.0.0.1
+  port: 3306
+  dbname: xboard
+  username: root
+  password: ""
+  charset: utf8mb4
+  collation: utf8mb4_unicode_ci
+  max_idle_conns: 25
+  max_open_conns: 100
+  conn_max_lifetime: 300s
+  table_prefix: "v2_"
+  # SQLite 模式（driver: sqlite 时使用）
+  sqlite_path: "./storage/data/xboard.db"
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  db: 0
+  prefix: "xboard_"
+
+log:
+  level: debug         # debug | info | warn | error
+  format: console      # console | json
+  output: stdout       # stdout | file
+  file: "./storage/logs/xboard.log"
+  max_size: 100        # MB
+  max_backups: 30
+  max_age: 7           # days
+  compress: true
+
+cache:
+  driver: redis        # redis | memory
+  ttl: 3600
+
+queue:
+  driver: redis        # redis | sync
+  max_attempts: 3
+  retry_delay: 5s
+
+cors:
+  allowed_origins: ["*"]
+  allowed_methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+  allowed_headers: ["Content-Type", "Authorization"]
+  max_age: 86400
+
+smtp:
+  host: ""
+  port: 465
+  username: ""
+  password: ""
+  encryption: "tls"    # tls | ssl
+  from_address: ""
+  from_name: "Xboard"
+
+telegram:
+  bot_token: ""
+  proxy: ""            # socks5://127.0.0.1:1080
+
+plugins:
+  path: "./plugins"
+  core_path: "./plugins-core"
+  auto_install: true
+
+rate_limit:
+  enabled: true
+  requests: 60
+  duration: 60s

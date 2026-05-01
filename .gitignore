@@ -1,0 +1,29 @@
+# Binary output
+build/
+*.exe
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime
+config.yaml
+storage/
+.env
+
+# Compilation
+vendor/
+go.sum
+
+# Temp
+tmp/
+*.log
