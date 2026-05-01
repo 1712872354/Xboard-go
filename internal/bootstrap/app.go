@@ -291,7 +291,7 @@ func convertTimestampColumns(db *gorm.DB) {
 	db.Raw("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'v2_%'").Scan(&tables)
 
 	for _, table := range tables {
-		rows, err := db.Raw("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('created_at','updated_at') AND DATA_TYPE IN ('int','bigint')", table).Rows()
+		rows, err := db.Raw("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME LIKE '%\\_at' AND DATA_TYPE IN ('int','bigint')", table).Rows()
 		if err != nil {
 			continue
 		}

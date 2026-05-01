@@ -205,67 +205,134 @@ info "redis 已配置"
 ok "配置文件已完成"
 
 # =============================================================
-# Step 4: 初始化数据库（首次安装）
+# Step 4: 初始化数据库（首次安装检测 + 重装）
 # =============================================================
 step 4 "初始化数据库"
 
-echo "  选项说明:"
-echo "    1) 全新安装 — 清空所有现有数据并重新初始化"
-echo "    2) 保留现有数据 — 仅创建管理员（如无则跳过）"
+# 自动检测是否首次安装
+DB_HOST=$(grep 'host:' config.yaml | head -1 | awk '{print $2}')
+DB_PORT=$(grep 'port:' config.yaml | head -1 | awk '{print $2}')
+DB_USER=$(grep 'username:' config.yaml | head -1 | awk '{print $2}')
+DB_PASS=$(grep 'password:' config.yaml | head -1 | awk '{print $2}')
+DB_NAME=$(grep 'dbname:' config.yaml | head -1 | awk '{print $2}')
+DB_DRIVER=$(grep 'driver:' config.yaml | head -2 | tail -1 | awk '{print $2}')
+
+HAS_TABLES=false
+HAS_ADMIN=false
+
+if [ "$DB_DRIVER" = "mysql" ] && [ -n "$DB_NAME" ]; then
+  MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
+  [ -n "$DB_PASS" ] && MYSQL_CMD="$MYSQL_CMD -p$DB_PASS"
+
+  TABLE_COUNT=$($MYSQL_CMD -N $DB_NAME -e "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME'" 2>/dev/null || echo "0")
+  ADMIN_COUNT=$($MYSQL_CMD -N $DB_NAME -e "SELECT COUNT(*) FROM v2_user WHERE is_admin=1" 2>/dev/null || echo "0")
+
+  [ "$TABLE_COUNT" -gt 0 ] 2>/dev/null && HAS_TABLES=true
+  [ "$ADMIN_COUNT" -gt 0 ] 2>/dev/null && HAS_ADMIN=true
+fi
+
+echo ""
+if [ "$HAS_TABLES" = false ]; then
+  echo "  ${GREEN}检测到首次安装，数据库中无现有表${NC}"
+elif [ "$HAS_ADMIN" = false ]; then
+  echo "  ${YELLOW}检测到数据库有表但尚未创建管理员${NC}"
+else
+  echo "  ${BLUE}检测到已有管理员账号，如需重置请选择全新安装${NC}"
+fi
+echo ""
+
+# 安全确认机制
+echo "  请选择数据库初始化方式:"
+echo "    1) ${RED}全新安装${NC} — 删除所有表 → 重建表结构 → 生成初始化数据"
+echo "    2) 保留现有数据 — 仅创建管理员（若无则跳过）"
 echo ""
 read -rp "  请选择 [1/2]: " INIT_MODE
 
 if [ "$INIT_MODE" = "1" ]; then
-  warn "将清空数据库中所有 v2_ 前缀的表，此操作不可恢复！"
-  read -rp "  确认清空？输入数据库名确认 (xboard): " DB_CONFIRM
+  echo ""
+  echo "  ${RED}╔══════════════════════════════════════════════════════╗${NC}"
+  echo "  ${RED}║  危险操作警告！                                      ║${NC}"
+  echo "  ${RED}║  将删除数据库 ${DB_NAME} 中的 ${RED}所有表${NC}               ${RED}║${NC}"
+  echo "  ${RED}║  此操作${NC}${RED}不可恢复${NC}${RED}！                                   ║${NC}"
+  echo "  ${RED}╚══════════════════════════════════════════════════════╝${NC}"
+  echo ""
 
-  DB_NAME_CHECK=$(grep 'dbname:' config.yaml | awk '{print $2}')
-  if [ "$DB_CONFIRM" = "$DB_NAME_CHECK" ] || [ "$DB_CONFIRM" = "xboard" ]; then
-    # 从 config.yaml 读取数据库连接参数
-    DB_HOST=$(grep 'host:' config.yaml | head -1 | awk '{print $2}')
-    DB_PORT=$(grep 'port:' config.yaml | head -1 | awk '{print $2}')
-    DB_USER=$(grep 'username:' config.yaml | head -1 | awk '{print $2}')
-    DB_PASS=$(grep 'password:' config.yaml | head -1 | awk '{print $2}')
-    DB_NAME=$(grep 'dbname:' config.yaml | head -1 | awk '{print $2}')
-    DB_DRIVER=$(grep 'driver:' config.yaml | head -2 | tail -1 | awk '{print $2}')
+  # 列出要删除的表
+  ALL_TABLES=$($MYSQL_CMD -N $DB_NAME -e "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME' ORDER BY TABLE_NAME" 2>/dev/null)
+  if [ -n "$ALL_TABLES" ]; then
+    TABLE_LIST=$(echo "$ALL_TABLES" | tr '\n' ' ')
+    echo "  将要删除以下 ${RED}$(echo "$ALL_TABLES" | wc -l)${NC} 个表:"
+    echo "$ALL_TABLES" | sed 's/^/    - /'
+    echo ""
+  fi
 
-    if [ "$DB_DRIVER" = "mysql" ]; then
-      MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
-      [ -n "$DB_PASS" ] && MYSQL_CMD="$MYSQL_CMD -p$DB_PASS"
+  # 安全检查 1：输入数据库名确认
+  echo -n "  输入 ${RED}数据库名称 ($DB_NAME)${NC} 确认: "
+  read DB_CONFIRM
+  echo ""
 
-      # 获取所有 v2_ 开头的表
-      TABLES=$($MYSQL_CMD -N $DB_NAME -e "SELECT GROUP_CONCAT(TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME LIKE 'v2_%'")
-      if [ -n "$TABLES" ]; then
-        $MYSQL_CMD -N $DB_NAME -e "DROP TABLE IF EXISTS $TABLES"
-        ok "已清空所有 v2_ 前缀的表"
-      else
-        warn "数据库中无 v2_ 表，无需清空"
-      fi
+  if [ "$DB_CONFIRM" != "$DB_NAME" ]; then
+    err "数据库名称输入错误，已取消操作"
+    exit 1
+  fi
+
+  # 安全检查 2：输入 YES 二次确认
+  echo -n "  输入 ${RED}YES${NC}（大写）再次确认不可恢复操作: "
+  read YES_CONFIRM
+  echo ""
+
+  if [ "$YES_CONFIRM" != "YES" ]; then
+    err "确认输入错误，已取消操作"
+    exit 1
+  fi
+
+  if [ "$DB_DRIVER" = "mysql" ]; then
+    # 禁用外键检查，避免删除时因外键约束失败
+    $MYSQL_CMD -N $DB_NAME -e "SET FOREIGN_KEY_CHECKS = 0"
+
+    # 获取所有表并删除
+    ALL_TABLES=$($MYSQL_CMD -N $DB_NAME -e "SELECT GROUP_CONCAT(TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME'")
+    if [ -n "$ALL_TABLES" ]; then
+      $MYSQL_CMD -N $DB_NAME -e "DROP TABLE IF EXISTS $ALL_TABLES"
+      ok "已删除所有表"
     fi
-    ok "数据库已重置，启动后将自动重建表结构"
+
+    $MYSQL_CMD -N $DB_NAME -e "SET FOREIGN_KEY_CHECKS = 1"
+  fi
+
+  ok "数据库已清空，正在重建表结构和初始化数据..."
+  echo ""
+
+  # 运行 xboard --seed：内部自动完成 AutoMigrate 建表 + 创建管理员
+  if ./xboard --seed --config config.yaml; then
+    ok "表结构创建完成"
+    echo ""
+    ok "默认管理员创建成功（请记录上方输出的邮箱和密码）"
+    SEED_DONE=true
   else
-    warn "输入不匹配，跳过清空操作"
+    err "数据库初始化失败，请检查配置"
+    exit 1
   fi
 else
   ok "保留现有数据"
-fi
 
-# =============================================================
-# Step 5: 创建管理员
-# =============================================================
-step 5 "管理员账号"
+  # =============================================================
+  # Step 5: 创建管理员
+  # =============================================================
+  step 5 "管理员账号"
 
-read -rp "  是否创建默认管理员？[Y/n]: " SEED
-SEED=${SEED:-Y}
-if [ "$SEED" = "Y" ] || [ "$SEED" = "y" ]; then
-  if ./xboard --seed --config config.yaml; then
-    echo ""
-    ok "管理员创建成功（请记录上方输出的邮箱和密码）"
+  read -rp "  是否创建默认管理员？[Y/n]: " SEED
+  SEED=${SEED:-Y}
+  if [ "$SEED" = "Y" ] || [ "$SEED" = "y" ]; then
+    if ./xboard --seed --config config.yaml; then
+      echo ""
+      ok "管理员创建成功（请记录上方输出的邮箱和密码）"
+    else
+      warn "管理员创建失败（可能已存在，可忽略）"
+    fi
   else
-    warn "管理员创建失败（可能已存在，可忽略）"
+    ok "跳过"
   fi
-else
-  ok "跳过"
 fi
 
 # =============================================================
