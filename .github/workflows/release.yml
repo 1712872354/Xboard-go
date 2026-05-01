@@ -60,6 +60,14 @@ jobs:
             cp config.example.yaml "dist/${STAGING}/"
             cp Dockerfile "dist/${STAGING}/"
 
+            # 部署脚本（按平台分发）
+            if [ "$OS" = "windows" ]; then
+              cp install.ps1 "dist/${STAGING}/"
+            else
+              cp install.sh  "dist/${STAGING}/"
+              chmod +x "dist/${STAGING}/install.sh"
+            fi
+
             # Archive
             cd dist
             if [ "$OS" = "windows" ]; then
