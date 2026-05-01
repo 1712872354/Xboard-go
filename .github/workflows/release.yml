@@ -107,6 +107,11 @@ jobs:
           ---
           EOF
 
+      - name: Copy install scripts to dist
+        run: |
+          cp install.sh   dist/xboard-${{ github.event.inputs.version }}-install.sh
+          cp install.ps1  dist/xboard-${{ github.event.inputs.version }}-install.ps1
+
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v2
         with:
@@ -115,5 +120,8 @@ jobs:
           body_path: release_notes.md
           prerelease: ${{ github.event.inputs.pre_release }}
           draft: false
-          files: dist/*.tar.gz
+          files: |
+            dist/*.tar.gz
+            dist/*.sh
+            dist/*.ps1
           fail_on_unmatched_files: true
