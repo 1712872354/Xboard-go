@@ -109,8 +109,8 @@ jobs:
 
       - name: Copy install scripts to dist
         run: |
-          cp install.sh   dist/xboard-${{ github.event.inputs.version }}-install.sh
-          cp install.ps1  dist/xboard-${{ github.event.inputs.version }}-install.ps1
+          cp install.sh   dist/install.sh
+          cp install.ps1  dist/install.ps1
 
       - name: Create Release & Upload
         uses: softprops/action-gh-release@v2
