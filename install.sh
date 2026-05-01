@@ -134,40 +134,80 @@ step 3 "配置文件"
 if [ ! -f config.yaml ]; then
   if [ -f config.example.yaml ]; then
     cp config.example.yaml config.yaml
-    warn "已生成 config.yaml，请编辑关键配置项"
-    echo ""
-    info "  1. app.key       → 生成32位随机密钥"
-    info "  2. app.url       → 服务对外地址，如 https://panel.example.com"
-    info "  3. database.*    → MySQL 连接信息（或改用 SQLite）"
-    info "  4. redis.*       → Redis 连接信息"
-    echo ""
-    read -rp "  按 Enter 编辑 config.yaml，完成后输入 y 继续 [y/N]: " CONFIRM
-    if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
-      warn "编辑 $WORKDIR/config.yaml 后重新运行本脚本"
-      exit 0
-    fi
   else
     err "缺少 config.example.yaml，无法生成配置文件"
     exit 1
   fi
-else
-  ok "config.yaml 已存在"
-  read -rp "  是否重新编辑？[y/N]: " REEDIT
-  if [ "$REEDIT" = "y" ] || [ "$REEDIT" = "Y" ]; then
-    ${EDITOR:-vi} config.yaml
-  fi
 fi
+
+echo "  请配置以下关键项（直接回车使用默认值）:"
+echo ""
+
+# app.key
+DEFAULT_KEY=$(tr -dc 'a-zA-Z0-9!@#$%^&*()_+-=' < /dev/urandom | head -c 32)
+read -rp "  app.key [自动生成]: " APP_KEY
+APP_KEY=${APP_KEY:-$DEFAULT_KEY}
+sed -i "s/key: \"your-app-key-here\"/key: \"$APP_KEY\"/" config.yaml
+info "app.key 已设置"
+
+# app.url
+DEFAULT_URL="http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
+[ -z "$DEFAULT_URL" ] && DEFAULT_URL="http://localhost:8080"
+read -rp "  app.url [$DEFAULT_URL]: " APP_URL
+APP_URL=${APP_URL:-$DEFAULT_URL}
+sed -i "s|url: \"http://localhost:8080\"|url: \"$APP_URL\"|" config.yaml
+info "app.url 已设置"
+
+# database.driver
+read -rp "  数据库类型 (mysql/sqlite) [mysql]: " DB_DRIVER
+DB_DRIVER=${DB_DRIVER:-mysql}
+sed -i "s/driver: mysql/driver: $DB_DRIVER/" config.yaml
+
+if [ "$DB_DRIVER" = "mysql" ]; then
+  read -rp "  数据库主机 [127.0.0.1]: " DB_HOST
+  DB_HOST=${DB_HOST:-127.0.0.1}
+  sed -i "s/host: 127.0.0.1/host: $DB_HOST/" config.yaml
+
+  read -rp "  数据库端口 [3306]: " DB_PORT
+  DB_PORT=${DB_PORT:-3306}
+  sed -i "s/port: 3306/port: $DB_PORT/" config.yaml
+
+  read -rp "  数据库名 [xboard]: " DB_NAME
+  DB_NAME=${DB_NAME:-xboard}
+  sed -i "s/dbname: xboard/dbname: $DB_NAME/" config.yaml
+
+  read -rp "  数据库用户 [root]: " DB_USER
+  DB_USER=${DB_USER:-root}
+  sed -i "s/username: root/username: $DB_USER/" config.yaml
+
+  read -rsp "  数据库密码: " DB_PASS
+  echo ""
+  sed -i "s/password: \"\"/password: \"$DB_PASS\"/" config.yaml
+fi
+info "database 已配置"
+
+# redis
+read -rp "  Redis 主机 [127.0.0.1]: " REDIS_HOST
+REDIS_HOST=${REDIS_HOST:-127.0.0.1}
+sed -i "s/host: 127.0.0.1/host: $REDIS_HOST/" config.yaml
+
+read -rp "  Redis 端口 [6379]: " REDIS_PORT
+REDIS_PORT=${REDIS_PORT:-6379}
+sed -i "s/port: 6379/port: $REDIS_PORT/" config.yaml
+
+read -rsp "  Redis 密码（无密码直接回车）: " REDIS_PASS
+echo ""
+if [ -n "$REDIS_PASS" ]; then
+  sed -i "s/password: \"\"/password: \"$REDIS_PASS\"/" config.yaml
+fi
+info "redis 已配置"
+
+ok "配置文件已完成"
 
 # =============================================================
 # Step 4: 数据库迁移
 # =============================================================
 step 4 "数据库迁移"
-
-if grep -q 'key: "your-app-key-here"' config.yaml; then
-  NEW_KEY=$(tr -dc 'a-zA-Z0-9!@#$%^&*()_+-=' < /dev/urandom | head -c 32)
-  sed -i "s/key: \"your-app-key-here\"/key: \"$NEW_KEY\"/" config.yaml
-  ok "已自动生成 app.key"
-fi
 
 if ./xboard --migrate --config config.yaml; then
   ok "数据库迁移完成"
