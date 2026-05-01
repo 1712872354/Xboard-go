@@ -144,7 +144,7 @@ echo "  请配置以下关键项（直接回车使用默认值）:"
 echo ""
 
 # app.key
-DEFAULT_KEY=$(tr -dc 'a-zA-Z0-9!@#$%^&*()_+-=' < /dev/urandom | head -c 32)
+DEFAULT_KEY=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 32)
 read -rp "  app.key [自动生成]: " APP_KEY
 APP_KEY=${APP_KEY:-$DEFAULT_KEY}
 sed -i "s/key: \"your-app-key-here\"/key: \"$APP_KEY\"/" config.yaml
