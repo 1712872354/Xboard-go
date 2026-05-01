@@ -82,9 +82,24 @@ else
 
   if [ "$VERSION" = "latest" ]; then
     info "正在获取最新版本信息..."
+    HTTP_CODE=$(curl -fsSL -o /dev/null -w "%{http_code}" "$API_URL/latest" 2>/dev/null || echo "000")
+    if [ "$HTTP_CODE" != "200" ]; then
+      err "仓库中暂无 Release 发布"
+      info "请先在 GitHub Actions 中运行 Release 工作流创建首个发布版本"
+      info "地址: https://github.com/$REPO/actions"
+      info "或手动前往 $RELEASES_URL 下载发布包"
+      exit 1
+    fi
     DOWNLOAD_URL=$(curl -fsSL "$API_URL/latest" | grep -oP '"browser_download_url":\s*"\K[^"]+' | grep "${OS}-${ARCH}\.tar\.gz$" | head -1)
   else
     DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/xboard-${VERSION}-${OS}-${ARCH}.tar.gz"
+    # 预检版本是否存在
+    HTTP_CODE=$(curl -fsSL -o /dev/null -w "%{http_code}" "$DOWNLOAD_URL" 2>/dev/null || echo "000")
+    if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "000" ]; then
+      err "版本 $VERSION 不存在或尚无该平台的发布包"
+      info "请前往 $RELEASES_URL 查看可用的版本和平台"
+      exit 1
+    fi
   fi
 
   if [ -z "$DOWNLOAD_URL" ]; then

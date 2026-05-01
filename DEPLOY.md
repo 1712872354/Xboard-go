@@ -7,7 +7,7 @@
 ### Linux / macOS
 
 ```bash
-curl -fsSL https://github.com/1712872354/Xboard-go/releases/latest/download/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+curl -fsSL https://raw.githubusercontent.com/1712872354/Xboard-go/master/install.sh -o install.sh && chmod +x install.sh && ./install.sh
 ```
 
 指定版本：
@@ -19,7 +19,7 @@ curl -fsSL https://github.com/1712872354/Xboard-go/releases/latest/download/inst
 ### Windows（PowerShell）
 
 ```powershell
-Invoke-WebRequest -Uri https://github.com/1712872354/Xboard-go/releases/latest/download/install.ps1 -OutFile install.ps1; .\install.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/1712872354/Xboard-go/master/install.ps1 -OutFile install.ps1; .\install.ps1
 ```
 
 ### 脚本执行流程
@@ -132,7 +132,7 @@ systemctl start xboard xboard-scheduler
 重新下载一键部署脚本运行即可：
 
 ```bash
-curl -fsSL https://github.com/1712872354/Xboard-go/releases/latest/download/install.sh -o install.sh && chmod +x install.sh && ./install.sh v新版本号
+curl -fsSL https://raw.githubusercontent.com/1712872354/Xboard-go/master/install.sh -o install.sh && chmod +x install.sh && ./install.sh v新版本号
 ```
 
 或手动替换二进制文件：
