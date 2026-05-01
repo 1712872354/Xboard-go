@@ -28,7 +28,7 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/1712872354/Xboard-go/ma
 ① 检测系统架构
 ② 下载对应平台的发布包（或使用本地文件）
 ③ 生成配置文件（config.yaml）
-④ 运行数据库迁移（自动生成 app.key）
+④ 初始化数据库（全新安装时自动清空并重建）
 ⑤ 创建管理员账号
 ⑥ 启动服务（支持 Systemd 安装）
 ```
@@ -55,10 +55,9 @@ cp config.example.yaml config.yaml
 
 ### 3. 初始化
 
-```bash
-# 数据库迁移
-./xboard --migrate --config config.yaml
+> 首次启动时会自动创建表结构，无需手动迁移。
 
+```bash
 # 创建管理员
 ./xboard --seed --config config.yaml
 ```
@@ -143,7 +142,6 @@ tar -xzf xboard-新版本-linux-amd64.tar.gz -C /tmp/
 cp /tmp/xboard-新版本-linux-amd64/xboard /opt/xboard/
 cp /tmp/xboard-新版本-linux-amd64/xboard-scheduler /opt/xboard/
 cp -r /tmp/xboard-新版本-linux-amd64/web/* /opt/xboard/web/
-/opt/xboard/xboard --migrate --config /opt/xboard/config.yaml
 systemctl start xboard xboard-scheduler
 ```
 

@@ -205,16 +205,49 @@ info "redis 已配置"
 ok "配置文件已完成"
 
 # =============================================================
-# Step 4: 数据库迁移
+# Step 4: 初始化数据库（首次安装）
 # =============================================================
-step 4 "数据库迁移"
+step 4 "初始化数据库"
 
-if ./xboard --migrate --config config.yaml; then
-  ok "数据库迁移完成"
+echo "  选项说明:"
+echo "    1) 全新安装 — 清空所有现有数据并重新初始化"
+echo "    2) 保留现有数据 — 仅创建管理员（如无则跳过）"
+echo ""
+read -rp "  请选择 [1/2]: " INIT_MODE
+
+if [ "$INIT_MODE" = "1" ]; then
+  warn "将清空数据库中所有 v2_ 前缀的表，此操作不可恢复！"
+  read -rp "  确认清空？输入数据库名确认 (xboard): " DB_CONFIRM
+
+  DB_NAME_CHECK=$(grep 'dbname:' config.yaml | awk '{print $2}')
+  if [ "$DB_CONFIRM" = "$DB_NAME_CHECK" ] || [ "$DB_CONFIRM" = "xboard" ]; then
+    # 从 config.yaml 读取数据库连接参数
+    DB_HOST=$(grep 'host:' config.yaml | head -1 | awk '{print $2}')
+    DB_PORT=$(grep 'port:' config.yaml | head -1 | awk '{print $2}')
+    DB_USER=$(grep 'username:' config.yaml | head -1 | awk '{print $2}')
+    DB_PASS=$(grep 'password:' config.yaml | head -1 | awk '{print $2}')
+    DB_NAME=$(grep 'dbname:' config.yaml | head -1 | awk '{print $2}')
+    DB_DRIVER=$(grep 'driver:' config.yaml | head -2 | tail -1 | awk '{print $2}')
+
+    if [ "$DB_DRIVER" = "mysql" ]; then
+      MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
+      [ -n "$DB_PASS" ] && MYSQL_CMD="$MYSQL_CMD -p$DB_PASS"
+
+      # 获取所有 v2_ 开头的表
+      TABLES=$($MYSQL_CMD -N $DB_NAME -e "SELECT GROUP_CONCAT(TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME' AND TABLE_NAME LIKE 'v2_%'")
+      if [ -n "$TABLES" ]; then
+        $MYSQL_CMD -N $DB_NAME -e "DROP TABLE IF EXISTS $TABLES"
+        ok "已清空所有 v2_ 前缀的表"
+      else
+        warn "数据库中无 v2_ 表，无需清空"
+      fi
+    fi
+    ok "数据库已重置，启动后将自动重建表结构"
+  else
+    warn "输入不匹配，跳过清空操作"
+  fi
 else
-  err "迁移失败，请检查数据库配置"
-  info "查看详细错误: ./xboard --migrate --config config.yaml"
-  exit 1
+  ok "保留现有数据"
 fi
 
 # =============================================================
