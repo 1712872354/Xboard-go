@@ -221,53 +221,61 @@ HAS_TABLES=false
 HAS_ADMIN=false
 
 if [ "$DB_DRIVER" = "mysql" ] && [ -n "$DB_NAME" ]; then
-  MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER"
+  MYSQL_CMD="mysql -h $DB_HOST -P $DB_PORT -u $DB_USER --connect-timeout=3"
   [ -n "$DB_PASS" ] && MYSQL_CMD="$MYSQL_CMD -p$DB_PASS"
 
-  TABLE_COUNT=$($MYSQL_CMD -N $DB_NAME -e "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME'" 2>/dev/null || echo "0")
-  ADMIN_COUNT=$($MYSQL_CMD -N $DB_NAME -e "SELECT COUNT(*) FROM v2_user WHERE is_admin=1" 2>/dev/null || echo "0")
+  # 先测试连接
+  DB_OK=false
+  $MYSQL_CMD -N -e "SELECT 1" >/dev/null 2>&1 && DB_OK=true
 
-  [ "$TABLE_COUNT" -gt 0 ] 2>/dev/null && HAS_TABLES=true
-  [ "$ADMIN_COUNT" -gt 0 ] 2>/dev/null && HAS_ADMIN=true
+  if [ "$DB_OK" = true ]; then
+    TABLE_COUNT=$($MYSQL_CMD -N $DB_NAME -e "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME'" 2>/dev/null || echo "0")
+    ADMIN_COUNT=$($MYSQL_CMD -N $DB_NAME -e "SELECT COUNT(*) FROM v2_user WHERE is_admin=1" 2>/dev/null || echo "0")
+    [ "$TABLE_COUNT" -gt 0 ] 2>/dev/null && HAS_TABLES=true
+    [ "$ADMIN_COUNT" -gt 0 ] 2>/dev/null && HAS_ADMIN=true
+  else
+    warn "数据库连接失败，请检查 config.yaml 中的数据库配置"
+    info "已跳过数据库检测，部署后将自动创建表结构"
+  fi
 fi
 
 echo ""
 if [ "$HAS_TABLES" = false ]; then
-  echo "  ${GREEN}检测到首次安装，数据库中无现有表${NC}"
+  echo -e "  ${GREEN}检测到首次安装，数据库中无现有表${NC}"
 elif [ "$HAS_ADMIN" = false ]; then
-  echo "  ${YELLOW}检测到数据库有表但尚未创建管理员${NC}"
+  echo -e "  ${YELLOW}检测到数据库有表但尚未创建管理员${NC}"
 else
-  echo "  ${BLUE}检测到已有管理员账号，如需重置请选择全新安装${NC}"
+  echo -e "  ${BLUE}检测到已有管理员账号，如需重置请选择全新安装${NC}"
 fi
 echo ""
 
 # 安全确认机制
-echo "  请选择数据库初始化方式:"
-echo "    1) ${RED}全新安装${NC} — 删除所有表 → 重建表结构 → 生成初始化数据"
-echo "    2) 保留现有数据 — 仅创建管理员（若无则跳过）"
+echo -e "  请选择数据库初始化方式:"
+echo -e "    1) ${RED}全新安装${NC} — 删除所有表 → 重建表结构 → 生成初始化数据"
+echo -e "    2) 保留现有数据 — 仅创建管理员（若无则跳过）"
 echo ""
 read -rp "  请选择 [1/2]: " INIT_MODE
 
 if [ "$INIT_MODE" = "1" ]; then
   echo ""
-  echo "  ${RED}╔══════════════════════════════════════════════════════╗${NC}"
-  echo "  ${RED}║  危险操作警告！                                      ║${NC}"
-  echo "  ${RED}║  将删除数据库 ${DB_NAME} 中的 ${RED}所有表${NC}               ${RED}║${NC}"
-  echo "  ${RED}║  此操作${NC}${RED}不可恢复${NC}${RED}！                                   ║${NC}"
-  echo "  ${RED}╚══════════════════════════════════════════════════════╝${NC}"
+  echo -e "  ${RED}╔══════════════════════════════════════════════════════╗${NC}"
+  echo -e "  ${RED}║  危险操作警告！                                      ║${NC}"
+  echo -e "  ${RED}║  将删除数据库 ${DB_NAME} 中的所有表               ${RED}║${NC}"
+  echo -e "  ${RED}║  此操作${NC}${RED}不可恢复${NC}${RED}！                                   ║${NC}"
+  echo -e "  ${RED}╚══════════════════════════════════════════════════════╝${NC}"
   echo ""
 
   # 列出要删除的表
   ALL_TABLES=$($MYSQL_CMD -N $DB_NAME -e "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$DB_NAME' ORDER BY TABLE_NAME" 2>/dev/null)
   if [ -n "$ALL_TABLES" ]; then
     TABLE_LIST=$(echo "$ALL_TABLES" | tr '\n' ' ')
-    echo "  将要删除以下 ${RED}$(echo "$ALL_TABLES" | wc -l)${NC} 个表:"
+    echo -e "  将要删除以下 ${RED}$(echo "$ALL_TABLES" | wc -l)${NC} 个表:"
     echo "$ALL_TABLES" | sed 's/^/    - /'
     echo ""
   fi
 
   # 安全检查 1：输入数据库名确认
-  echo -n "  输入 ${RED}数据库名称 ($DB_NAME)${NC} 确认: "
+  echo -en "  输入 ${RED}数据库名称 ($DB_NAME)${NC} 确认: "
   read DB_CONFIRM
   echo ""
 
@@ -277,7 +285,7 @@ if [ "$INIT_MODE" = "1" ]; then
   fi
 
   # 安全检查 2：输入 YES 二次确认
-  echo -n "  输入 ${RED}YES${NC}（大写）再次确认不可恢复操作: "
+  echo -en "  输入 ${RED}YES${NC}（大写）再次确认不可恢复操作: "
   read YES_CONFIRM
   echo ""
 
