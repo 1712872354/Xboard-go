@@ -286,8 +286,34 @@ func shouldMigrate() bool {
 	return false
 }
 
+// convertTimestampColumns 将 PHP 版遗留的整型时间戳 (created_at/updated_at) 转换为 datetime
+func convertTimestampColumns(db *gorm.DB) {
+	var tables []string
+	db.Raw("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'v2_%'").Scan(&tables)
+
+	for _, table := range tables {
+		var cols []struct {
+			ColumnName string
+			DataType   string
+		}
+		db.Raw("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('created_at','updated_at') AND DATA_TYPE IN ('int','bigint')", table).Scan(&cols)
+
+		for _, col := range cols {
+			sql := fmt.Sprintf("UPDATE `%s` SET `%s` = FROM_UNIXTIME(`%s`) WHERE `%s` > 0 AND `%s` < 4102444800 AND CHAR_LENGTH(`%s`) < 11", table, col.ColumnName, col.ColumnName, col.ColumnName, col.ColumnName, col.ColumnName)
+			if err := db.Exec(sql).Error; err != nil {
+				log.Printf("  转换 %s.%s 失败: %v (可忽略)", table, col.ColumnName, err)
+			} else {
+				log.Printf("  ✓ 转换 %s.%s 整型时间戳为 datetime", table, col.ColumnName)
+			}
+		}
+	}
+}
+
 func runMigrations(db *gorm.DB) {
 	log.Println("运行数据库迁移...")
+
+	// 兼容 PHP 版遗留数据：将整型时间戳转为 datetime
+	convertTimestampColumns(db)
 
 	// Auto-migrate all models in dependency order
 	models := []interface{}{
