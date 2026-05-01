@@ -291,22 +291,26 @@ func convertTimestampColumns(db *gorm.DB) {
 	db.Raw("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'v2_%'").Scan(&tables)
 
 	for _, table := range tables {
-		rows, err := db.Raw("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('created_at','updated_at') AND DATA_TYPE IN ('int','bigint')", table).Rows()
+		rows, err := db.Raw("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('created_at','updated_at') AND DATA_TYPE IN ('int','bigint')", table).Rows()
 		if err != nil {
 			continue
 		}
 
 		for rows.Next() {
-			var colName, dataType string
-			if err := rows.Scan(&colName, &dataType); err != nil {
+			var colName string
+			if err := rows.Scan(&colName); err != nil {
 				continue
 			}
-			sql := fmt.Sprintf("UPDATE `%s` SET `%s` = FROM_UNIXTIME(`%s`) WHERE `%s` > 0 AND `%s` < 4102444800 AND CHAR_LENGTH(`%s`) < 11", table, colName, colName, colName, colName, colName)
-			if err := db.Exec(sql).Error; err != nil {
-				log.Printf("  转换 %s.%s 失败: %v (可忽略)", table, colName, err)
-			} else {
-				log.Printf("  ✓ 转换 %s.%s 整型时间戳为 datetime", table, colName)
-			}
+			newCol := colName + "_new"
+			// 1. 新增 datetime 列
+			_ = db.Exec(fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` DATETIME(3) NULL", table, newCol)).Error
+			// 2. 将整型时间戳转为 datetime 写入新列
+			_ = db.Exec(fmt.Sprintf("UPDATE `%s` SET `%s` = FROM_UNIXTIME(`%s`) WHERE `%s` > 0", table, newCol, colName, colName)).Error
+			// 3. 删除旧列
+			_ = db.Exec(fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `%s`", table, colName)).Error
+			// 4. 重命名新列
+			_ = db.Exec(fmt.Sprintf("ALTER TABLE `%s` CHANGE COLUMN `%s` `%s` DATETIME(3) NULL", table, newCol, colName)).Error
+			log.Printf("  ✓ 转换 %s.%s 整型时间戳为 datetime", table, colName)
 		}
 		rows.Close()
 	}
